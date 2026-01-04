@@ -44,6 +44,7 @@ class _AnalyticsState extends State<Analytics> {
 
   Future<void> loadEntries() async {
     final data = await DBHelper.getEntries();
+    if (!mounted) return; // Fix: Check if mounted before setState
     setState(() => entries = data);
   }
 
@@ -255,7 +256,6 @@ class _AnalyticsState extends State<Analytics> {
               ),
               const SizedBox(height: 15),
               AISuggestionCard(entries: entries, type: SuggestionType.weekly),
-
               const SizedBox(height: 35),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -287,8 +287,9 @@ class _AnalyticsState extends State<Analytics> {
                         firstDate: DateTime(2020),
                         lastDate: DateTime.now(),
                       );
-                      if (picked != null)
+                      if (picked != null && mounted) {
                         setState(() => selectedMonth = picked);
+                      }
                     },
                   ),
                 ],
@@ -418,12 +419,14 @@ class _AISuggestionCardState extends State<AISuggestionCard> {
   @override
   void didUpdateWidget(AISuggestionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.targetMonth != widget.targetMonth) {
+    if (oldWidget.targetMonth != widget.targetMonth ||
+        oldWidget.entries.length != widget.entries.length) {
       generateInsights();
     }
   }
 
   Future<void> generateInsights() async {
+    if (!mounted) return;
     setState(() => loading = true);
 
     DateTime now = DateTime.now();
@@ -454,6 +457,7 @@ class _AISuggestionCardState extends State<AISuggestionCard> {
     }
 
     if (contents.isEmpty) {
+      if (!mounted) return;
       setState(() {
         suggestion =
             "Not enough data for $periodText to provide AI suggestions.";
@@ -466,6 +470,7 @@ class _AISuggestionCardState extends State<AISuggestionCard> {
         "Based on these journal entries from $periodText, provide a brief summary of the overall emotional trend and 3 personalized wellness suggestions: \n${contents.join('\n')}";
     final result = await GeminiService.analyzeEmotion(prompt);
 
+    if (!mounted) return; // Fix: Check if mounted after async call
     setState(() {
       suggestion = result;
       loading = false;
@@ -532,7 +537,6 @@ class _AISuggestionCardState extends State<AISuggestionCard> {
   }
 }
 
-// EmojiAnalysisSheet remains unchanged
 class EmojiAnalysisSheet extends StatefulWidget {
   final String emoji;
   const EmojiAnalysisSheet({super.key, required this.emoji});
@@ -556,14 +560,19 @@ class _EmojiAnalysisSheetState extends State<EmojiAnalysisSheet> {
         .where((e) => e['emoji'] == widget.emoji)
         .map((e) => e['content'])
         .join("\n");
+
     if (filtered.isEmpty) {
+      if (!mounted) return;
       setState(() {
         analysis = "No entries found for this mood.";
         loading = false;
       });
       return;
     }
+
     final result = await GeminiService.analyzeEmotion(filtered);
+
+    if (!mounted) return; // Fix: Check if mounted after async call
     setState(() {
       analysis = result;
       loading = false;

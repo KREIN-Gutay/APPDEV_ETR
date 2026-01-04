@@ -2,6 +2,7 @@ import 'dart:ui'; // Required for ImageFilter
 import 'package:flutter/material.dart';
 import 'package:mind_care/screens/home.dart';
 import 'package:mind_care/screens/analytics.dart';
+import 'package:mind_care/screens/lib/db/db_helper.dart';
 import 'package:mind_care/screens/profile.dart';
 import 'note_model.dart';
 import 'add_note.dart';
@@ -18,17 +19,45 @@ class Notes extends StatefulWidget {
 
 class _NotesState extends State<Notes> {
   final int _currentIndex = 2; // Notes tab
-  final List<Note> _notes = [];
+  List<Note> _notes = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotes();
+  }
+
+  // Fetch notes from the database
+  Future<void> _loadNotes() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final data = await DBHelper.getNotes();
+      if (mounted) {
+        setState(() {
+          _notes = data.map((item) => Note.fromMap(item)).toList();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading notes: $e");
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBody: true, // Important for the floating nav bar effect
+      extendBody: true,
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Journal Entries'),
         centerTitle: true,
-        backgroundColor: Color(0xFFCFDEF3),
+        backgroundColor: const Color(0xFFCFDEF3),
         elevation: 0,
         automaticallyImplyLeading: false,
         titleTextStyle: const TextStyle(
@@ -48,7 +77,9 @@ class _NotesState extends State<Notes> {
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: _notes.isEmpty
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _notes.isEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -73,7 +104,7 @@ class _NotesState extends State<Notes> {
                 )
               : ListView.builder(
                   physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.only(top: 10, bottom: 120),
+                  padding: const EdgeInsets.only(top: 10, bottom: 150),
                   itemCount: _notes.length,
                   itemBuilder: (context, index) {
                     final note = _notes[index];
@@ -110,21 +141,37 @@ class _NotesState extends State<Notes> {
 
                                 if (result == null) return;
 
-                                setState(() {
-                                  if (result["action"] == "delete") {
-                                    _notes.removeAt(result["index"]);
-                                  } else if (result["action"] == "edit") {
-                                    _notes[result["index"]] = result["note"];
-                                  }
-                                });
+                                if (result["action"] == "delete") {
+                                  await DBHelper.deleteNote(note.id!);
+                                } else if (result["action"] == "edit") {
+                                  final updatedNote = result["note"] as Note;
+                                  await DBHelper.updateNote(
+                                    updatedNote.id!,
+                                    updatedNote.toMap(),
+                                  );
+                                }
+                                _loadNotes();
                               },
-                              title: Text(
-                                note.title,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                ),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      note.title,
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                  // Play icon appears if audioPath is not null
+                                  if (note.audioPath != null)
+                                    const Icon(
+                                      Icons.play_circle_fill_rounded,
+                                      color: Colors.blueAccent,
+                                      size: 24,
+                                    ),
+                                ],
                               ),
                               subtitle: Padding(
                                 padding: const EdgeInsets.only(top: 8.0),
@@ -146,11 +193,12 @@ class _NotesState extends State<Notes> {
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(15),
                                 ),
-                                onSelected: (value) {
+                                onSelected: (value) async {
                                   if (value == "delete") {
-                                    setState(() => _notes.removeAt(index));
+                                    await DBHelper.deleteNote(note.id!);
+                                    _loadNotes();
                                   } else if (value == "edit") {
-                                    Navigator.push(
+                                    await Navigator.push(
                                       context,
                                       MaterialPageRoute(
                                         builder: (_) => ViewEditNoteScreen(
@@ -159,6 +207,7 @@ class _NotesState extends State<Notes> {
                                         ),
                                       ),
                                     );
+                                    _loadNotes();
                                   }
                                 },
                                 itemBuilder: (context) => [
@@ -202,136 +251,162 @@ class _NotesState extends State<Notes> {
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(
-          bottom: 100,
-        ), // Adjusted to sit above the glass nav bar
+        padding: const EdgeInsets.only(bottom: 110),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              decoration: BoxDecoration(
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blueAccent.withOpacity(0.3),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: FloatingActionButton(
-                onPressed: () async {
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AddNoteScreen()),
-                  );
-
-                  if (result != null && result is Note) {
-                    setState(() {
-                      _notes.add(result);
-                    });
-                  }
-                },
-                backgroundColor: Colors.blueAccent[700],
-                elevation: 0,
-                shape: const CircleBorder(),
-                child: const Icon(
-                  Icons.add_rounded,
-                  size: 35,
-                  color: Colors.white,
-                ),
-              ),
+            // Voice Journaling Button
+            _buildQuickActionButton(
+              icon: Icons.mic_rounded,
+              label: "Voice Entry",
+              color: Colors.deepPurpleAccent,
+              onTap: () async {
+                // Navigate to AddNoteScreen (Voice mode logic handled there)
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AddNoteScreen()),
+                );
+                if (result != null && result is Note) {
+                  await DBHelper.insertNote(result.toMap());
+                  await _loadNotes();
+                }
+              },
             ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.5),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Text(
-                "New Journal",
-                style: TextStyle(
-                  color: Colors.blueAccent,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+            const SizedBox(height: 12),
+            // Text Journaling Button
+            _buildQuickActionButton(
+              icon: Icons.add_rounded,
+              label: "New Entry",
+              color: Colors.blueAccent[700]!,
+              onTap: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AddNoteScreen()),
+                );
+                if (result != null && result is Note) {
+                  await DBHelper.insertNote(result.toMap());
+                  await _loadNotes();
+                }
+              },
             ),
           ],
         ),
       ),
-      bottomNavigationBar: Container(
-        margin: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 30,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(30),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-            child: BottomNavigationBar(
-              currentIndex: _currentIndex,
-              backgroundColor: Colors.white.withOpacity(0.7),
-              elevation: 0,
-              unselectedItemColor: Colors.black38,
-              selectedItemColor: Colors.blueAccent[700],
-              showUnselectedLabels: false,
-              type: BottomNavigationBarType.fixed,
-              onTap: (index) {
-                if (index == _currentIndex) return;
+      bottomNavigationBar: _buildBottomNavBar(),
+    );
+  }
 
-                switch (index) {
-                  case 0:
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => Home(userName: widget.userName),
-                      ),
-                    );
-                    break;
-                  case 1:
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => Analytics(userName: widget.userName),
-                      ),
-                    );
-                    break;
-                  case 3:
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => Profile(userName: widget.userName),
-                      ),
-                    );
-                    break;
-                }
-              },
-              items: const [
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.home_rounded),
-                  label: "Home",
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.analytics_rounded),
-                  label: "Analytics",
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.sticky_note_2_rounded),
-                  label: "Notes",
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.person_rounded),
-                  label: "Profile",
-                ),
-              ],
+  // Helper to build consistent action buttons
+  Widget _buildQuickActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Column(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(0.3),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: FloatingActionButton(
+            heroTag: label,
+            onPressed: onTap,
+            backgroundColor: color,
+            elevation: 0,
+            shape: const CircleBorder(),
+            child: Icon(icon, size: 30, color: Colors.white),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.6),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
             ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBottomNavBar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(30),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            backgroundColor: Colors.white.withOpacity(0.7),
+            elevation: 0,
+            unselectedItemColor: Colors.black38,
+            selectedItemColor: Colors.blueAccent[700],
+            showUnselectedLabels: false,
+            type: BottomNavigationBarType.fixed,
+            onTap: (index) {
+              if (index == _currentIndex) return;
+              Widget nextScreen;
+              switch (index) {
+                case 0:
+                  nextScreen = Home(userName: widget.userName);
+                  break;
+                case 1:
+                  nextScreen = Analytics(userName: widget.userName);
+                  break;
+                case 3:
+                  nextScreen = Profile(userName: widget.userName);
+                  break;
+                default:
+                  return;
+              }
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => nextScreen),
+              );
+            },
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.home_rounded),
+                label: "Home",
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.analytics_rounded),
+                label: "Analytics",
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.sticky_note_2_rounded),
+                label: "Notes",
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.person_rounded),
+                label: "Profile",
+              ),
+            ],
           ),
         ),
       ),

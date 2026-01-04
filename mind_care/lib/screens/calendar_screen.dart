@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:mind_care/screens/calendar_state.dart';
 import 'package:mind_care/screens/lib/db/db_helper.dart';
-//import '../calendar_state.dart';
 
 class Calendar extends StatefulWidget {
   const Calendar({super.key});
@@ -20,8 +19,13 @@ class _CalendarState extends State<Calendar> {
     selectedDate.value.month,
   );
 
+  // Added a counter to force FutureBuilder to refresh
+  int _refreshCounter = 0;
+
   void _refreshData() {
-    setState(() {});
+    setState(() {
+      _refreshCounter++;
+    });
   }
 
   Future<void> _pickDate() async {
@@ -53,7 +57,6 @@ class _CalendarState extends State<Calendar> {
     }
   }
 
-  // --- NEW: Modal for Add/Edit/View ---
   void _showEntryModal({Map<String, dynamic>? entry}) {
     final bool isEditing = entry != null;
     final TextEditingController titleController = TextEditingController(
@@ -157,7 +160,7 @@ class _CalendarState extends State<Calendar> {
                   }
 
                   if (mounted) Navigator.pop(context);
-                  _refreshData();
+                  _refreshData(); // Triggers the counter update
                 },
                 child: Text(
                   isEditing ? "Update Note" : "Save Note",
@@ -407,8 +410,7 @@ class _CalendarState extends State<Calendar> {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () =>
-                      _showEntryModal(), // --- CHANGED: Open Modal for Add ---
+                  onPressed: () => _showEntryModal(),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text("Add Note"),
                 ),
@@ -416,6 +418,8 @@ class _CalendarState extends State<Calendar> {
             ),
             const SizedBox(height: 10),
             FutureBuilder<List<Map<String, dynamic>>>(
+              // The key forces the FutureBuilder to recreate and refetch data
+              key: ValueKey('$_activeSelectedDay$_refreshCounter'),
               future: DBHelper.getEntriesByDate(
                 DateFormat('yyyy-MM-dd').format(_activeSelectedDay),
               ),
@@ -447,9 +451,7 @@ class _CalendarState extends State<Calendar> {
                   itemBuilder: (context, index) {
                     final entry = snapshot.data![index];
                     return GestureDetector(
-                      onTap: () => _showEntryModal(
-                        entry: entry,
-                      ), // --- CHANGED: Tap list to view/edit ---
+                      onTap: () => _showEntryModal(entry: entry),
                       child: buildEntryTile(entry),
                     );
                   },
@@ -485,9 +487,7 @@ class _CalendarState extends State<Calendar> {
           children: [
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 20),
-              onPressed: () => _showEntryModal(
-                entry: entry,
-              ), // --- CHANGED: Modal for Edit ---
+              onPressed: () => _showEntryModal(entry: entry),
             ),
             IconButton(
               icon: const Icon(

@@ -15,7 +15,8 @@ class DBHelper {
 
     return openDatabase(
       path,
-      version: 2,
+      // Incremented version to 4 to handle the new audioPath column
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE entries (
@@ -47,6 +48,40 @@ class DBHelper {
             language TEXT
           )
         ''');
+
+        // Note table with audioPath included for fresh installs
+        await db.execute('''
+          CREATE TABLE notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            dateTime TEXT NOT NULL,
+            audioPath TEXT
+          )
+        ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS notes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              title TEXT NOT NULL,
+              content TEXT NOT NULL,
+              dateTime TEXT NOT NULL
+            )
+          ''');
+        }
+
+        // Upgrade for version 4 adds the audioPath column to existing users
+        if (oldVersion < 4) {
+          var columns = await db.rawQuery('PRAGMA table_info(notes)');
+          var hasAudioPath = columns.any(
+            (column) => column['name'] == 'audioPath',
+          );
+          if (!hasAudioPath) {
+            await db.execute('ALTER TABLE notes ADD COLUMN audioPath TEXT');
+          }
+        }
       },
     );
   }
@@ -81,5 +116,31 @@ class DBHelper {
       whereArgs: ['$dateString%'],
       orderBy: 'date DESC',
     );
+  }
+
+  // --- NOTE METHODS ---
+
+  static Future<int> insertNote(Map<String, dynamic> data) async {
+    final db = await database;
+    return await db.insert(
+      'notes',
+      data,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> getNotes() async {
+    final db = await database;
+    return await db.query('notes', orderBy: 'id DESC');
+  }
+
+  static Future<int> updateNote(int id, Map<String, dynamic> data) async {
+    final db = await database;
+    return await db.update('notes', data, where: 'id = ?', whereArgs: [id]);
+  }
+
+  static Future<int> deleteNote(int id) async {
+    final db = await database;
+    return await db.delete('notes', where: 'id = ?', whereArgs: [id]);
   }
 }

@@ -1,8 +1,8 @@
 import 'dart:ui'; // Required for ImageFilter
 import 'package:flutter/material.dart';
 import 'package:mind_care/screens/note_model.dart';
-//import 'note_model.dart';
 import 'services/gemini_service.dart';
+import 'package:audioplayers/audioplayers.dart'; // Added for audio playback
 
 class ViewEditNoteScreen extends StatefulWidget {
   final Note note;
@@ -24,11 +24,54 @@ class _ViewEditNoteScreenState extends State<ViewEditNoteScreen> {
   bool isEditing = false;
   bool _isAnalyzing = false;
 
+  // Audio Player State
+  late AudioPlayer _audioPlayer;
+  bool _isPlaying = false;
+  Duration _duration = Duration.zero;
+  Duration _position = Duration.zero;
+
   @override
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.note.title);
     _contentController = TextEditingController(text: widget.note.content);
+
+    // Initialize Audio Player if a recording exists
+    _audioPlayer = AudioPlayer();
+    if (widget.note.audioPath != null) {
+      _setupAudioListeners();
+    }
+  }
+
+  void _setupAudioListeners() {
+    _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (mounted) setState(() => _isPlaying = state == PlayerState.playing);
+    });
+    _audioPlayer.onDurationChanged.listen((newDuration) {
+      if (mounted) setState(() => _duration = newDuration);
+    });
+    _audioPlayer.onPositionChanged.listen((newPosition) {
+      if (mounted) setState(() => _position = newPosition);
+    });
+    _audioPlayer.onPlayerComplete.listen((event) {
+      if (mounted) setState(() => _position = Duration.zero);
+    });
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    _audioPlayer.dispose(); // Always dispose the player
+    super.dispose();
+  }
+
+  Future<void> _togglePlayback() async {
+    if (_isPlaying) {
+      await _audioPlayer.pause();
+    } else {
+      await _audioPlayer.play(DeviceFileSource(widget.note.audioPath!));
+    }
   }
 
   // Helper for glass containers
@@ -92,8 +135,7 @@ class _ViewEditNoteScreenState extends State<ViewEditNoteScreen> {
 
                       showModalBottomSheet(
                         context: context,
-                        backgroundColor:
-                            Colors.transparent, // Required for glass effect
+                        backgroundColor: Colors.transparent,
                         barrierColor: Colors.black26,
                         isScrollControlled: true,
                         builder: (_) => _buildAnalysisSheet(context, result),
@@ -116,9 +158,11 @@ class _ViewEditNoteScreenState extends State<ViewEditNoteScreen> {
                   Navigator.pop(context, {
                     "action": "edit",
                     "note": Note(
+                      id: widget.note.id, // Preserve ID
                       title: _titleController.text,
                       content: _contentController.text,
                       date: widget.note.date,
+                      audioPath: widget.note.audioPath, // Preserve Audio
                     ),
                     "index": widget.index,
                   });
@@ -159,6 +203,49 @@ class _ViewEditNoteScreenState extends State<ViewEditNoteScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+
+                // --- AUDIO PLAYER SECTION ---
+                if (widget.note.audioPath != null) ...[
+                  buildGlassContainer(
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            _isPlaying
+                                ? Icons.pause_circle_filled
+                                : Icons.play_circle_filled,
+                            color: Colors.blueAccent,
+                            size: 40,
+                          ),
+                          onPressed: _togglePlayback,
+                        ),
+                        Expanded(
+                          child: Slider(
+                            activeColor: Colors.blueAccent,
+                            inactiveColor: Colors.blueAccent.withOpacity(0.2),
+                            min: 0,
+                            max: _duration.inSeconds.toDouble(),
+                            value: _position.inSeconds.toDouble(),
+                            onChanged: (value) async {
+                              final position = Duration(seconds: value.toInt());
+                              await _audioPlayer.seek(position);
+                            },
+                          ),
+                        ),
+                        Text(
+                          "${_position.inMinutes}:${(_position.inSeconds % 60).toString().padLeft(2, '0')}",
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // ---------------------------
                 Expanded(
                   child: buildGlassContainer(
                     child: TextField(
